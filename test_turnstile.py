@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Test natural Turnstile solve: real typing + long wait (repo's browser_init flow)."""
-import asyncio, json, urllib.request, random, string
+import asyncio, json, urllib.request, random, string, os
 import websockets
 
-EMAIL = "awesomebeamy+grok" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8)) + "@gmail.com"
+EMAIL = os.getenv("GMAIL_BASE_EMAIL", "") + "+grok" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8)) + "@gmail.com"
 
 async def main():
     req = urllib.request.Request("http://127.0.0.1:9222/json/new?about:blank", method="PUT")

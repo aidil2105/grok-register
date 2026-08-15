@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Continue signup: fill code, then name+password, submit, extract SSO."""
-import asyncio, json, base64, urllib.request, re, random, string, sys
+import asyncio, json, base64, urllib.request, re, random, string, sys, os
 import websockets
 
-CODE = "NHZQUV"
-EMAIL = "awesomebeamy+groknsaccoai@gmail.com"
+CODE = os.getenv("XAI_SIGNUP_CODE", "")
+EMAIL = os.getenv("XAI_SIGNUP_EMAIL", "")
 PASSWORD = "".join(random.choices(string.ascii_lowercase + string.digits, k=14)) + "Aa1!"
 
 async def main():

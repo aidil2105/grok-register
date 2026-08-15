@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Fill code B1K-BAS into the open grokhbrrac8w tab and complete signup."""
-import asyncio, json, base64, urllib.request, re, random, string
+"""Fill code into the open signup tab and complete signup (scrubbed)."""
+import asyncio, json, base64, urllib.request, re, random, string, os
 import websockets
 
-CODE = "B1KBAS"
-EMAIL = "awesomebeamy+grokhbrrac8w@gmail.com"
+CODE = os.getenv("XAI_SIGNUP_CODE", "")
+EMAIL = os.getenv("XAI_SIGNUP_EMAIL", "")
 PASSWORD = "".join(random.choices(string.ascii_lowercase + string.digits, k=14)) + "Aa1!"
 first = "A" + "".join(random.choices(string.ascii_lowercase, k=4))
 last = "B" + "".join(random.choices(string.ascii_lowercase, k=4))
@@ -37,8 +37,8 @@ async def main():
     t = await ev("document.body.innerText.slice(0, 300)")
     print("CURRENT:", t.replace("\n", " | ")[:200])
     # check email shown on page
-    shown = await ev("document.body.innerText.includes('grokhbrrac8w')")
-    print("page shows grokhbrrac8w:", shown)
+    shown = await ev("document.body.innerText.includes(document.body.innerText.match(/\\+grok[a-z0-9]{10}/)?.[0] || 'zzz')")
+    print("page shows signup alias:", shown)
 
     # fill code
     fill = await ev(f"""(() => {{

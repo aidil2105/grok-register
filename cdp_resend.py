@@ -1,10 +1,10 @@
 import os
 #!/usr/bin/env python3
 """Resend code, grab fresh one, fill + confirm."""
-import asyncio, json, urllib.request, re, imaplib, email as email_mod, time
+import asyncio, json, urllib.request, re, imaplib, email as email_mod, time, os
 import websockets
 
-EMAIL = "awesomebeamy+groknsaccoai@gmail.com"
+EMAIL = os.getenv("XAI_SIGNUP_EMAIL", "")
 
 def gmail_last_uid():
     c = imaplib.IMAP4_SSL("imap.gmail.com", 993)

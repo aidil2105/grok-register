@@ -14,12 +14,14 @@ BASE = "https://cli-chat-proxy.grok.com/v1"
 TOKEN_ENDPOINT = "https://auth.x.ai/oauth2/token"
 CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
 REDIRECT_URI = "http://127.0.0.1:56121/callback"
-MY_KEY = os.getenv("GROK_PROXY_KEY", "grok-personal")
+MY_KEY = os.getenv("GROK_PROXY_KEY", "")
 
 app = FastAPI()
 client = httpx.Client(timeout=300)
 lock = threading.Lock()
 accounts = []
+rr_index = 0
+COOLDOWN = 300  # seconds to skip an account after 429/401
 
 
 def load_accounts():
@@ -62,18 +64,27 @@ def refresh(acc):
 
 
 def get_token():
+    global rr_index
     with lock:
-        for acc in accounts:
+        n = len(accounts)
+        if not n:
+            raise HTTPException(503, "no accounts")
+        for _ in range(n):
+            acc = accounts[rr_index % n]
+            rr_index += 1
+            if acc.get("_cooldown_until", 0) > time.time():
+                continue
             ts = acc.get("_ts", 0)
             exp = acc.get("expires_in", 21600)
             if time.time() - ts > exp - 300:  # refresh 5 min before expiry
                 refresh(acc)
             return acc["access_token"], acc
-        # first run: force refresh if _ts unset
-        if accounts:
-            refresh(accounts[0])
-            return accounts[0]["access_token"], accounts[0]
-    raise HTTPException(503, "no accounts")
+    raise HTTPException(503, "all accounts in cooldown")
+
+
+def mark_cooldown(acc):
+    acc["_cooldown_until"] = time.time() + COOLDOWN
+    print(f"[grok-proxy] {acc.get('email')} cooling down {COOLDOWN}s")
 
 
 @app.on_event("startup")
@@ -115,9 +126,6 @@ def models(req: Request):
 async def chat(req: Request):
     _check_key(req)
     body = await req.body()
-    tok, acc = get_token()
-    headers = _headers(acc)
-    headers["Content-Length"] = str(len(body))
     # strip unknown fields that grok may reject
     try:
         j = json.loads(body)
@@ -127,27 +135,41 @@ async def chat(req: Request):
         j.pop("stream_options", None)
         j.pop("user", None)
         body = json.dumps(j).encode()
+    for attempt in range(len(accounts) or 1):
+        tok, acc = get_token()
+        headers = _headers(acc)
         headers["Content-Length"] = str(len(body))
-    req_headers = dict(headers)
-    upstream = client.build_request("POST", f"{BASE}/chat/completions", content=body, headers=req_headers)
-    r = client.send(upstream, stream=True)
-    if r.status_code != 200:
-        return Response(content=r.read(), status_code=r.status_code, media_type="application/json")
-    if j and j.get("stream"):
-        return StreamingResponse(r.iter_raw(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
-    return Response(content=r.read(), media_type="application/json")
+        req_headers = dict(headers)
+        upstream = client.build_request("POST", f"{BASE}/chat/completions", content=body, headers=req_headers)
+        r = client.send(upstream, stream=True)
+        print(f"[grok-proxy] chat via {acc.get('email')} -> {r.status_code}")
+        if r.status_code in (429, 401):
+            r.read()
+            mark_cooldown(acc)
+            continue  # try next account
+        if r.status_code != 200:
+            return Response(content=r.read(), status_code=r.status_code, media_type="application/json")
+        if j and j.get("stream"):
+            return StreamingResponse(r.iter_raw(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+        return Response(content=r.read(), media_type="application/json")
+    return Response(content=b'{"error":{"message":"all accounts rate limited"}}', status_code=429, media_type="application/json")
 
 
 @app.post("/v1/images/generations")
 async def image(req: Request):
     _check_key(req)
     body = await req.body()
-    tok, acc = get_token()
-    headers = _headers(acc)
-    headers["Content-Length"] = str(len(body))
-    upstream = client.build_request("POST", f"{BASE}/images/generations", content=body, headers=headers)
-    r = client.send(upstream)
-    return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    for attempt in range(len(accounts) or 1):
+        tok, acc = get_token()
+        headers = _headers(acc)
+        headers["Content-Length"] = str(len(body))
+        upstream = client.build_request("POST", f"{BASE}/images/generations", content=body, headers=headers)
+        r = client.send(upstream)
+        if r.status_code in (429, 401):
+            mark_cooldown(acc)
+            continue  # try next account
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+    return Response(content=b'{"error":{"message":"all accounts rate limited"}}', status_code=429, media_type="application/json")
 
 
 if __name__ == "__main__":
